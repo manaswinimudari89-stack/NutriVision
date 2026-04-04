@@ -1,0 +1,46 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "User Profile",
+      "description": "Stores user profile information and diet goals.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "displayName": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "dailyCalorieGoal": { "type": "number" },
+        "weight": { "type": "number" },
+        "height": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email"]
+    },
+    "MealLog": {
+      "title": "Meal Log",
+      "description": "Stores logs of food items consumed by the user.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "foodName": { "type": "string" },
+        "calories": { "type": "number" },
+        "protein": { "type": "number" },
+        "carbs": { "type": "number" },
+        "fats": { "type": "number" },
+        "confidence": { "type": "number" },
+        "imageUrl": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "foodName", "calories", "timestamp"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "User profile document"
+    },
+    "/users/{userId}/meals/{mealId}": {
+      "schema": "MealLog",
+      "description": "User's meal logs"
+    }
+  }
+}

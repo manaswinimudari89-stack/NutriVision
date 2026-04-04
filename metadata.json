@@ -1,0 +1,7 @@
+{
+  "name": "NutriVision",
+  "description": "AI-powered personalized nutrition and diet recommendation system with food recognition and macro tracking.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}

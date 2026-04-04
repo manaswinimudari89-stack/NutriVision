@@ -1,0 +1,38 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper Functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'email']) &&
+             data.uid is string &&
+             data.email is string &&
+             data.email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+    function isValidMeal(data) {
+      return data.keys().hasAll(['userId', 'foodName', 'calories', 'timestamp']) &&
+             data.userId is string &&
+             data.foodName is string &&
+             data.calories is number &&
+             data.timestamp is string;
+    }
+
+    match /users/{userId} {
+      allow read: if isOwner(userId);
+      allow create: if isOwner(userId) && isValidUser(request.resource.data);
+      allow update: if isOwner(userId) && isValidUser(request.resource.data);
+      
+      match /meals/{mealId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidMeal(request.resource.data);
+        allow update: if isOwner(userId) && isValidMeal(request.resource.data);
+        allow delete: if isOwner(userId);
+      }
+    }
+  }
+}

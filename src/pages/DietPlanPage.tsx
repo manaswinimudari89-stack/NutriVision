@@ -1,10 +1,13 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { GoogleGenAI, Type } from '@google/genai';
-import { Flame, Activity, TrendingUp, Utensils, Calendar, ShoppingCart, Loader2, Bell, CheckSquare, Square } from 'lucide-react';
+import { Flame, Activity, TrendingUp, Utensils, Calendar, ShoppingCart, Loader2, Bell, CheckSquare, Square, Trash2 } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { auth, db } from '../lib/firebase';
+import { doc, getDoc, setDoc, updateDoc, deleteField } from 'firebase/firestore';
 
 interface DietPlan {
+  createdAt?: string;
   dailyGoals: {
     calories: number;
     protein: number;
@@ -33,16 +36,63 @@ export default function DietPlanPage() {
   const [preferences, setPreferences] = useState('');
   const [checkedItems, setCheckedItems] = useState<Record<string, boolean>>({});
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
+  const [isPlanExpired, setIsPlanExpired] = useState(false);
+
+  useEffect(() => {
+    const fetchProfileAndPlan = async () => {
+      if (!auth.currentUser) return;
+      try {
+        const docRef = doc(db, 'users', auth.currentUser.uid);
+        const docSnap = await getDoc(docRef);
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          
+          // Set preferences for generation
+          if (data.profile) {
+            const p = data.profile;
+            const m = data.metrics;
+            const profileString = `I am a ${p.age}yo ${p.gender}, ${p.weight}kg, ${p.height}cm. Activity level: ${p.activityLevel}. Health conditions: ${p.healthConditions}. Dietary preferences: ${p.dietaryPreferences}. Target calories: ${m.tdee} kcal/day.`;
+            setPreferences(profileString);
+          }
+
+          // Check for existing diet plan
+          if (data.dietPlan) {
+            const savedPlan = data.dietPlan as DietPlan;
+            if (savedPlan.createdAt) {
+              const createdDate = new Date(savedPlan.createdAt);
+              const now = new Date();
+              const diffTime = Math.abs(now.getTime() - createdDate.getTime());
+              const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+              
+              if (diffDays > 7) {
+                setIsPlanExpired(true);
+              } else {
+                setPlan(savedPlan);
+                if (data.groceryCheckedItems) {
+                  setCheckedItems(data.groceryCheckedItems);
+                }
+              }
+            } else {
+              setPlan(savedPlan);
+            }
+          }
+        }
+      } catch (error) {
+        console.error("Error fetching profile/plan:", error);
+      }
+    };
+    fetchProfileAndPlan();
+  }, []);
 
   const generatePlan = async () => {
-    if (!preferences.trim()) return;
+    if (!preferences.trim() || !auth.currentUser) return;
     setLoading(true);
     
     try {
       const apiKey = (import.meta as any).env?.VITE_GEMINI_API_KEY || process.env.GEMINI_API_KEY;
       const ai = new GoogleGenAI({ apiKey });
       const response = await ai.models.generateContent({
-        model: 'gemini-3.1-pro-preview',
+        model: 'gemini-3-flash-preview',
         contents: `Generate a medically-sound, algorithmically optimized diet plan based on these preferences, goals, and conditions: ${preferences}. Return a realistic daily calorie goal and macro split, a 7-day weekly schedule with 4 meals per day (Breakfast, Lunch, Snack, Dinner) with realistic recipes and macros, and a consolidated grocery list.`,
         config: {
           responseMimeType: 'application/json',
@@ -97,9 +147,18 @@ export default function DietPlanPage() {
       });
 
       if (response.text) {
-        const parsedPlan = JSON.parse(response.text);
+        const parsedPlan = JSON.parse(response.text) as DietPlan;
+        parsedPlan.createdAt = new Date().toISOString();
+        
+        // Save to Firestore
+        await setDoc(doc(db, 'users', auth.currentUser.uid), {
+          dietPlan: parsedPlan,
+          groceryCheckedItems: {}
+        }, { merge: true });
+
         setPlan(parsedPlan);
         setCheckedItems({});
+        setIsPlanExpired(false);
       }
     } catch (error) {
       console.error("Failed to generate plan:", error);
@@ -109,8 +168,35 @@ export default function DietPlanPage() {
     }
   };
 
-  const toggleGroceryItem = (item: string) => {
-    setCheckedItems(prev => ({ ...prev, [item]: !prev[item] }));
+  const deletePlan = async () => {
+    if (!auth.currentUser) return;
+    if (!window.confirm("Are you sure you want to delete your current weekly diet plan?")) return;
+    
+    try {
+      await updateDoc(doc(db, 'users', auth.currentUser.uid), {
+        dietPlan: deleteField(),
+        groceryCheckedItems: deleteField()
+      });
+      setPlan(null);
+      setCheckedItems({});
+      setIsPlanExpired(false);
+    } catch (error) {
+      console.error("Error deleting plan:", error);
+    }
+  };
+
+  const toggleGroceryItem = async (item: string) => {
+    if (!auth.currentUser) return;
+    const newCheckedState = { ...checkedItems, [item]: !checkedItems[item] };
+    setCheckedItems(newCheckedState);
+    
+    try {
+      await updateDoc(doc(db, 'users', auth.currentUser.uid), {
+        groceryCheckedItems: newCheckedState
+      });
+    } catch (error) {
+      console.error("Error saving grocery state:", error);
+    }
   };
 
   const toggleNotifications = () => {
@@ -145,6 +231,12 @@ export default function DietPlanPage() {
             animate={{ opacity: 1, y: 0 }}
             className="max-w-2xl mx-auto bg-white p-8 rounded-3xl shadow-sm border border-gray-100 mb-12"
           >
+            {isPlanExpired && (
+              <div className="mb-6 p-4 bg-orange-50 text-orange-700 rounded-xl border border-orange-100">
+                <p className="font-bold">Your previous weekly diet plan has expired.</p>
+                <p className="text-sm mt-1">It's time to generate a new plan for the upcoming week!</p>
+              </div>
+            )}
             <label className="block text-sm font-bold text-gray-700 mb-2 uppercase tracking-wider">Your Health Profile & Goals</label>
             <textarea
               value={preferences}
@@ -158,7 +250,7 @@ export default function DietPlanPage() {
               className="w-full bg-black text-white py-4 rounded-xl font-bold hover:bg-gray-800 disabled:opacity-50 transition-all flex items-center justify-center gap-2 shadow-lg shadow-black/10"
             >
               {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Activity className="w-5 h-5" />}
-              Generate My Plan
+              Generate My Weekly Plan
             </button>
           </motion.div>
         )}
@@ -213,7 +305,7 @@ export default function DietPlanPage() {
                   <div className="flex items-center justify-between mb-6">
                     <div className="flex items-center gap-3">
                       <Calendar className="w-6 h-6 text-teal-600" />
-                      <h2 className="text-2xl font-bold text-gray-900">Recommended Weekly Schedule</h2>
+                      <h2 className="text-2xl font-bold text-gray-900">Weekly Schedule</h2>
                     </div>
                     <button 
                       onClick={toggleNotifications}
@@ -292,10 +384,11 @@ export default function DietPlanPage() {
                   </div>
                   
                   <button 
-                    onClick={() => { setPlan(null); setPreferences(''); }}
-                    className="w-full mt-6 bg-gray-100 text-gray-600 py-4 rounded-xl font-bold hover:bg-gray-200 transition-colors"
+                    onClick={deletePlan}
+                    className="w-full mt-6 bg-red-50 text-red-600 py-4 rounded-xl font-bold hover:bg-red-100 transition-colors flex items-center justify-center gap-2"
                   >
-                    Start Over
+                    <Trash2 className="w-5 h-5" />
+                    Delete Weekly Plan
                   </button>
                 </div>
               </div>

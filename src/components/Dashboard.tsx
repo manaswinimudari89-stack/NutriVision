@@ -1,9 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { motion } from 'motion/react';
 import { auth, db } from '../lib/firebase';
-import { collection, query, where, getDocs, orderBy, onSnapshot, limit } from 'firebase/firestore';
-import { Flame, Activity, Heart, ShieldAlert, AlertTriangle } from 'lucide-react';
+import { collection, query, where, getDocs, orderBy, onSnapshot, limit, doc, getDoc } from 'firebase/firestore';
+import { Flame, Activity, Heart, ShieldAlert, AlertTriangle, Clock } from 'lucide-react';
 import gsap from 'gsap';
+import ProfileSetup from './ProfileSetup';
 
 interface MealLog {
   id: string;
@@ -16,9 +17,27 @@ interface MealLog {
   timestamp: string;
 }
 
+interface UserProfile {
+  profile: {
+    age: number;
+    gender: string;
+    height: number;
+    weight: number;
+    activityLevel: string;
+    healthConditions: string;
+    dietaryPreferences: string;
+  };
+  metrics: {
+    bmi: number;
+    bmr: number;
+    tdee: number;
+  };
+}
+
 export default function Dashboard() {
   const containerRef = useRef<HTMLDivElement>(null);
   const [meals, setMeals] = useState<MealLog[]>([]);
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({
     calories: 0,
@@ -27,13 +46,28 @@ export default function Dashboard() {
     fats: 0
   });
 
+  const fetchProfile = async () => {
+    if (!auth.currentUser) return;
+    try {
+      const docRef = doc(db, 'users', auth.currentUser.uid);
+      const docSnap = await getDoc(docRef);
+      if (docSnap.exists() && docSnap.data().profile) {
+        setUserProfile(docSnap.data() as UserProfile);
+      }
+    } catch (error) {
+      console.error("Error fetching profile:", error);
+    }
+  };
+
   useEffect(() => {
     if (!auth.currentUser) return;
+
+    fetchProfile();
 
     const q = query(
       collection(db, `users/${auth.currentUser.uid}/meals`),
       orderBy('timestamp', 'desc'),
-      limit(10)
+      limit(100)
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -41,11 +75,12 @@ export default function Dashboard() {
         id: doc.id,
         ...doc.data()
       })) as MealLog[];
-      setMeals(mealData);
 
-      // Calculate today's stats
+      // Calculate today's stats and filter meals for today only
       const today = new Date().toISOString().split('T')[0];
       const todayMeals = mealData.filter(m => m.timestamp.startsWith(today));
+      
+      setMeals(todayMeals); // Only show today's meals in the UI
       
       const newStats = todayMeals.reduce((acc, curr) => ({
         calories: acc.calories + curr.calories,
@@ -65,7 +100,7 @@ export default function Dashboard() {
   }, []);
 
   useEffect(() => {
-    if (!containerRef.current || loading) return;
+    if (!containerRef.current || loading || !userProfile) return;
     
     const ctx = gsap.context(() => {
       gsap.from('.stagger-card', {
@@ -93,12 +128,20 @@ export default function Dashboard() {
     }, containerRef);
 
     return () => ctx.revert();
-  }, [loading]);
+  }, [loading, userProfile]);
 
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
         <div className="w-8 h-8 border-4 border-black border-t-transparent rounded-full animate-spin"></div>
+      </div>
+    );
+  }
+
+  if (!userProfile) {
+    return (
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+        <ProfileSetup onComplete={fetchProfile} />
       </div>
     );
   }
@@ -119,8 +162,20 @@ export default function Dashboard() {
   const cOffset = -pPct;
   const fOffset = -(pPct + cPct);
 
+  const getBmiCategory = (bmi: number) => {
+    if (bmi < 18.5) return { label: 'Underweight', color: 'text-blue-600', bg: 'bg-blue-50' };
+    if (bmi < 25) return { label: 'Normal', color: 'text-emerald-600', bg: 'bg-emerald-50' };
+    if (bmi < 30) return { label: 'Overweight', color: 'text-amber-600', bg: 'bg-amber-50' };
+    return { label: 'Obese', color: 'text-rose-600', bg: 'bg-rose-50' };
+  };
+
+  const bmiData = getBmiCategory(userProfile.metrics.bmi);
+  const targetCalories = userProfile.metrics.tdee;
+  const hasHypertension = userProfile.profile.healthConditions.toLowerCase().includes('hypertension');
+  const hasDiabetes = userProfile.profile.healthConditions.toLowerCase().includes('diabetes');
+
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8" ref={containerRef}>
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12" ref={containerRef}>
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         
         {/* Top Row */}
@@ -133,11 +188,11 @@ export default function Dashboard() {
             
             <div className="flex items-baseline gap-2 mb-8">
               <span className="text-6xl font-black tracking-tight">{stats.calories}</span>
-              <span className="text-xl font-medium opacity-90">/ 2500 kcal</span>
+              <span className="text-xl font-medium opacity-90">/ {targetCalories} kcal</span>
             </div>
             
             <div className="w-full bg-white/20 rounded-full h-3 mb-4 overflow-hidden">
-              <div className="progress-bar-fill bg-white h-full rounded-full" style={{ width: `${Math.min((stats.calories / 2500) * 100, 100)}%` }}></div>
+              <div className="progress-bar-fill bg-white h-full rounded-full" style={{ width: `${Math.min((stats.calories / targetCalories) * 100, 100)}%` }}></div>
             </div>
             
             <div className="flex items-center gap-2 text-sm font-bold">
@@ -146,7 +201,7 @@ export default function Dashboard() {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
                 </svg>
               </div>
-              {stats.calories >= 2500 ? 'Caloric Goal Reached' : 'On Track'}
+              {stats.calories >= targetCalories ? 'Caloric Goal Reached' : 'On Track'}
             </div>
           </div>
         </div>
@@ -158,9 +213,9 @@ export default function Dashboard() {
               <Activity className="w-5 h-5 text-emerald-500" />
             </div>
             <div>
-              <div className="text-6xl font-black text-[#0f172a] tracking-tight mb-3">16.4</div>
-              <span className="inline-block px-3 py-1 bg-emerald-50 text-emerald-600 text-xs font-bold uppercase tracking-wider rounded-md">
-                Underweight
+              <div className="text-6xl font-black text-[#0f172a] tracking-tight mb-3">{userProfile.metrics.bmi}</div>
+              <span className={`inline-block px-3 py-1 ${bmiData.bg} ${bmiData.color} text-xs font-bold uppercase tracking-wider rounded-md`}>
+                {bmiData.label}
               </span>
             </div>
           </div>
@@ -173,7 +228,7 @@ export default function Dashboard() {
               <Heart className="w-5 h-5 text-rose-500" />
             </div>
             <div>
-              <div className="text-6xl font-black text-[#0f172a] tracking-tight mb-1">1187</div>
+              <div className="text-6xl font-black text-[#0f172a] tracking-tight mb-1">{userProfile.metrics.bmr}</div>
               <div className="text-xs font-bold text-gray-400 uppercase tracking-widest">Base Kcal/Day</div>
             </div>
           </div>
@@ -296,20 +351,125 @@ export default function Dashboard() {
               <h3 className="text-xl font-bold text-[#0f172a]">AI Condition Protocols</h3>
             </div>
             
-            <div className="bg-gray-50 rounded-2xl p-6 border border-gray-100 flex gap-4 items-start">
-              <div className="w-10 h-10 bg-white rounded-xl shadow-sm flex items-center justify-center shrink-0 border border-gray-100">
-                <AlertTriangle className="w-5 h-5 text-rose-500" />
-              </div>
-              <div>
-                <div className="flex items-center gap-3 mb-2">
-                  <h4 className="font-bold text-[#0f172a]">Hypertension Protocol</h4>
-                  <span className="px-2 py-0.5 bg-emerald-500 text-white text-[0.6rem] font-bold uppercase tracking-wider rounded-md">Active</span>
+            <div className="space-y-4">
+              {hasHypertension && (
+                <div className="bg-gray-50 rounded-2xl p-6 border border-gray-100 flex gap-4 items-start">
+                  <div className="w-10 h-10 bg-white rounded-xl shadow-sm flex items-center justify-center shrink-0 border border-gray-100">
+                    <AlertTriangle className="w-5 h-5 text-rose-500" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-3 mb-2">
+                      <h4 className="font-bold text-[#0f172a]">Hypertension Protocol</h4>
+                      <span className="px-2 py-0.5 bg-emerald-500 text-white text-[0.6rem] font-bold uppercase tracking-wider rounded-md">Active</span>
+                    </div>
+                    <p className="text-sm text-gray-500 leading-relaxed">
+                      Sodium-response filter active (&lt;1500mg/day). Prioritizing high-mineral potassium and magnesium rich alternatives.
+                    </p>
+                  </div>
                 </div>
-                <p className="text-sm text-gray-500 leading-relaxed">
-                  Sodium-response filter active (&lt;1500mg/day). Prioritizing high-mineral potassium and magnesium rich alternatives.
-                </p>
-              </div>
+              )}
+
+              {hasDiabetes && (
+                <div className="bg-gray-50 rounded-2xl p-6 border border-gray-100 flex gap-4 items-start">
+                  <div className="w-10 h-10 bg-white rounded-xl shadow-sm flex items-center justify-center shrink-0 border border-gray-100">
+                    <Activity className="w-5 h-5 text-blue-500" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-3 mb-2">
+                      <h4 className="font-bold text-[#0f172a]">Diabetes Protocol</h4>
+                      <span className="px-2 py-0.5 bg-emerald-500 text-white text-[0.6rem] font-bold uppercase tracking-wider rounded-md">Active</span>
+                    </div>
+                    <p className="text-sm text-gray-500 leading-relaxed">
+                      Low glycemic index foods prioritized. Monitoring carb intake strictly to prevent blood sugar spikes.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {!hasHypertension && !hasDiabetes && (
+                <div className="bg-gray-50 rounded-2xl p-6 border border-gray-100 flex gap-4 items-start">
+                  <div className="w-10 h-10 bg-white rounded-xl shadow-sm flex items-center justify-center shrink-0 border border-gray-100">
+                    <Heart className="w-5 h-5 text-emerald-500" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-3 mb-2">
+                      <h4 className="font-bold text-[#0f172a]">General Wellness Protocol</h4>
+                      <span className="px-2 py-0.5 bg-emerald-500 text-white text-[0.6rem] font-bold uppercase tracking-wider rounded-md">Active</span>
+                    </div>
+                    <p className="text-sm text-gray-500 leading-relaxed">
+                      Maintaining balanced macronutrients and ensuring adequate hydration based on your {userProfile.profile.activityLevel} activity level.
+                    </p>
+                  </div>
+                </div>
+              )}
             </div>
+          </div>
+        </div>
+
+        {/* Recent Meals Log */}
+        <div className="lg:col-span-12 stagger-card mt-4">
+          <div className="bg-white rounded-[2rem] p-8 shadow-sm border border-gray-100">
+            <div className="flex items-center justify-between mb-8">
+              <div className="flex items-center gap-3">
+                <Clock className="w-6 h-6 text-emerald-600" />
+                <h3 className="text-xl font-bold text-[#0f172a]">Today's Meals</h3>
+              </div>
+              <button 
+                onClick={() => window.dispatchEvent(new CustomEvent('test-notification'))}
+                className="text-xs font-bold text-emerald-600 bg-emerald-50 px-3 py-1.5 rounded-full hover:bg-emerald-100 transition-colors"
+              >
+                Test Notification
+              </button>
+            </div>
+
+            {meals.length === 0 ? (
+              <div className="text-center py-12 text-gray-500 bg-gray-50 rounded-2xl border border-dashed border-gray-200">
+                No meals logged today. Head over to the Food Analyzer to log your first meal!
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {meals.map((meal) => (
+                  <div key={meal.id} className="bg-white rounded-2xl border border-gray-100 overflow-hidden shadow-sm hover:shadow-md transition-shadow group">
+                    <div className="h-48 overflow-hidden relative bg-gray-100 flex items-center justify-center">
+                      {meal.imageUrl ? (
+                        <img 
+                          src={meal.imageUrl} 
+                          alt={meal.foodName} 
+                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                          referrerPolicy="no-referrer"
+                        />
+                      ) : (
+                        <div className="text-5xl">🍽️</div>
+                      )}
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent"></div>
+                      <div className="absolute bottom-4 left-4 right-4">
+                        <h4 className="text-white font-bold text-lg capitalize truncate">{meal.foodName}</h4>
+                        <p className="text-white/80 text-sm">{new Date(meal.timestamp).toLocaleDateString()} at {new Date(meal.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</p>
+                      </div>
+                    </div>
+                    <div className="p-4 bg-gray-50">
+                      <div className="flex justify-between items-center mb-3">
+                        <span className="text-sm font-bold text-gray-900">{meal.calories} kcal</span>
+                      </div>
+                      <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                        <div className="bg-white py-2 rounded-lg border border-gray-100">
+                          <div className="font-bold text-emerald-600">{meal.protein}g</div>
+                          <div className="text-gray-400 uppercase tracking-wider text-[0.6rem] mt-1">Protein</div>
+                        </div>
+                        <div className="bg-white py-2 rounded-lg border border-gray-100">
+                          <div className="font-bold text-amber-600">{meal.carbs}g</div>
+                          <div className="text-gray-400 uppercase tracking-wider text-[0.6rem] mt-1">Carbs</div>
+                        </div>
+                        <div className="bg-white py-2 rounded-lg border border-gray-100">
+                          <div className="font-bold text-rose-600">{meal.fats}g</div>
+                          <div className="text-gray-400 uppercase tracking-wider text-[0.6rem] mt-1">Fats</div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 

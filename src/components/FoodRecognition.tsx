@@ -116,15 +116,42 @@ export default function FoodRecognition() {
   };
 
   const saveMeal = async () => {
-    if (!auth.currentUser || !result || !file) return;
+    if (!auth.currentUser || !result || !image) return;
     setLoading(true);
     try {
-      // Upload image to storage
-      const storageRef = ref(storage, `meals/${auth.currentUser.uid}/${Date.now()}_${file.name}`);
-      await uploadBytes(storageRef, file);
-      const imageUrl = await getDownloadURL(storageRef);
+      // Compress image before saving to Firestore to stay well under the 1MB document limit
+      const compressImage = (dataUrl: string): Promise<string> => {
+        return new Promise((resolve) => {
+          const img = new Image();
+          img.onload = () => {
+            const canvas = document.createElement('canvas');
+            const MAX_SIZE = 400;
+            let width = img.width;
+            let height = img.height;
+            if (width > height) {
+              if (width > MAX_SIZE) {
+                height *= MAX_SIZE / width;
+                width = MAX_SIZE;
+              }
+            } else {
+              if (height > MAX_SIZE) {
+                width *= MAX_SIZE / height;
+                height = MAX_SIZE;
+              }
+            }
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            ctx?.drawImage(img, 0, 0, width, height);
+            resolve(canvas.toDataURL('image/jpeg', 0.6));
+          };
+          img.src = dataUrl;
+        });
+      };
 
-      // Save to firestore
+      const compressedImage = await compressImage(image);
+
+      // Save to firestore directly
       await addDoc(collection(db, `users/${auth.currentUser.uid}/meals`), {
         userId: auth.currentUser.uid,
         foodName: result.foodName,
@@ -133,13 +160,14 @@ export default function FoodRecognition() {
         carbs: result.nutrition.carbs,
         fats: result.nutrition.fats,
         confidence: result.confidence,
-        imageUrl,
+        imageUrl: compressedImage,
         timestamp: new Date().toISOString(),
         createdAt: serverTimestamp()
       });
       setSaved(true);
-    } catch (err) {
-      setError("Failed to save meal log.");
+    } catch (err: any) {
+      console.error("Error saving meal:", err);
+      setError(err.message || "Failed to save meal log.");
     } finally {
       setLoading(false);
     }

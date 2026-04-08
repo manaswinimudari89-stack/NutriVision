@@ -22,7 +22,7 @@ export default function Hero() {
               <span className="text-gray-400">& Diet Recommendation</span>
             </h1>
             <p className="max-w-2xl mx-auto text-xl text-gray-500 mb-10 leading-relaxed">
-              Transform your relationship with food. Upload a photo, get instant nutritional insights, and track your health goals with precision.
+              Transform your relationship with food. Upload a photo, Analyze your meals instantly, detect nutrient gaps, and receive personalized diet guidance.
             </p>
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
               <Link

@@ -7,7 +7,9 @@ import LandingPage from './pages/LandingPage';
 import DashboardPage from './pages/DashboardPage';
 import RecognitionPage from './pages/RecognitionPage';
 import DietPlanPage from './pages/DietPlanPage';
+import AboutPage from './pages/AboutPage';
 import Auth from './components/Auth';
+import NotificationManager from './components/NotificationManager';
 import { motion, AnimatePresence } from 'motion/react';
 
 function ProtectedRoute({ children, user }: { children: React.ReactNode, user: User | null | undefined }) {
@@ -27,10 +29,12 @@ export default function App() {
     <Router>
       <div className="min-h-screen bg-white font-sans selection:bg-black selection:text-white">
         <Navbar />
+        {user && <NotificationManager />}
         <main>
           <AnimatePresence mode="wait">
             <Routes>
               <Route path="/" element={<LandingPage />} />
+              <Route path="/about" element={<AboutPage />} />
               <Route path="/login" element={user ? <Navigate to="/dashboard" /> : <Auth />} />
               
               <Route 

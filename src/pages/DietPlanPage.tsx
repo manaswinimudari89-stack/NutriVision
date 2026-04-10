@@ -89,12 +89,22 @@ export default function DietPlanPage() {
     setLoading(true);
     
     try {
-      const apiKey = (import.meta as any).env?.VITE_GEMINI_API_KEY || process.env.GEMINI_API_KEY;
+      // Vite statically replaces import.meta.env, so it must be written exactly like this:
+      const envApiKey = import.meta.env.VITE_GEMINI_API_KEY;
+      const processApiKey = typeof process !== 'undefined' ? process.env.GEMINI_API_KEY : undefined;
+      const apiKey = envApiKey || processApiKey;
+
+      if (!apiKey) {
+        throw new Error("Missing Gemini API Key. Please add VITE_GEMINI_API_KEY to your Vercel Environment Variables and redeploy.");
+      }
+
       const ai = new GoogleGenAI({ apiKey });
       const response = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
+        model: 'gemini-1.5-pro',
         contents: `Generate a medically-sound, algorithmically optimized diet plan based on these preferences, goals, and conditions: ${preferences}. Return a realistic daily calorie goal and macro split, a 7-day weekly schedule with 4 meals per day (Breakfast, Lunch, Snack, Dinner) with realistic recipes and macros, and a consolidated grocery list.`,
         config: {
+          temperature: 0.2,
+          topP: 0.95,
           responseMimeType: 'application/json',
           responseSchema: {
             type: Type.OBJECT,

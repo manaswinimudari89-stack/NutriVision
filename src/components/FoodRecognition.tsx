@@ -52,11 +52,20 @@ export default function FoodRecognition() {
     setError(null);
     try {
       const base64Image = image.split(',')[1];
-      const apiKey = (import.meta as any).env?.VITE_GEMINI_API_KEY || process.env.GEMINI_API_KEY;
+      
+      // Vite statically replaces import.meta.env, so it must be written exactly like this:
+      const envApiKey = import.meta.env.VITE_GEMINI_API_KEY;
+      const processApiKey = typeof process !== 'undefined' ? process.env.GEMINI_API_KEY : undefined;
+      const apiKey = envApiKey || processApiKey;
+
+      if (!apiKey) {
+        throw new Error("Missing Gemini API Key. Please add VITE_GEMINI_API_KEY to your Vercel Environment Variables and redeploy.");
+      }
+
       const ai = new GoogleGenAI({ apiKey });
       
       const response = await ai.models.generateContent({
-        model: 'gemini-3.1-pro-preview',
+        model: 'gemini-1.5-pro',
         contents: [
           {
             inlineData: {
@@ -64,9 +73,11 @@ export default function FoodRecognition() {
               mimeType: file.type,
             }
           },
-          "Analyze this image. First, determine if it contains food. If it does not contain food, set 'isFood' to false and explain why in 'detectionDetails'. If it is food, set 'isFood' to true, identify the main dish, and provide its estimated nutritional value per standard serving. Return a JSON object with 'isFood' (boolean), 'foodName', 'confidence' (0-1), 'calories', 'protein' (g), 'carbs' (g), and 'fats' (g). Also provide a list of 'otherPossibilities' (strings) and 'detectionDetails' (string explaining what was detected)."
+          "Role: You are a professional Dietician and Computer Vision Food Analyst. Task: Analyze the provided image of food with surgical precision. Steps: 1. Identify: Detect if the image contains food. If not, set 'isFood' to false and explain in 'detectionDetails'. 2. Estimate: If it is food, calculate the approximate weight and volume for each visible item. 3. Calculate: Provide a nutritional breakdown (Calories, Protein, Carbs, Fats) based on the estimated portions. 4. Validate: If an item is ambiguous, list the most likely options in 'otherPossibilities'. Return a JSON object strictly matching the schema."
         ],
         config: {
+          temperature: 0.2,
+          topP: 0.95,
           responseMimeType: "application/json",
           responseSchema: {
             type: Type.OBJECT,

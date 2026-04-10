@@ -19,11 +19,13 @@ export default function Auth() {
     setError('');
     setLoading(true);
 
+    const cleanEmail = email.trim();
+
     try {
       if (isLogin) {
-        await signInWithEmailAndPassword(auth, email, password);
+        await signInWithEmailAndPassword(auth, cleanEmail, password);
       } else {
-        const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+        const userCredential = await createUserWithEmailAndPassword(auth, cleanEmail, password);
         // Create a basic user document in Firestore
         await setDoc(doc(db, 'users', userCredential.user.uid), {
           uid: userCredential.user.uid,
@@ -33,10 +35,21 @@ export default function Auth() {
       }
       navigate('/dashboard');
     } catch (err: any) {
+      console.error("Auth error:", err);
       if (err.code === 'auth/operation-not-allowed') {
         setError('Email/Password authentication is not enabled. Please go to your Firebase Console -> Authentication -> Sign-in method, and enable "Email/Password".');
       } else if (err.code === 'auth/invalid-credential') {
         setError('Invalid email or password. Please try again.');
+      } else if (err.code === 'auth/email-already-in-use') {
+        setError('This email is already registered. Please sign in instead.');
+      } else if (err.code === 'auth/weak-password') {
+        setError('Password should be at least 6 characters.');
+      } else if (err.code === 'auth/user-not-found') {
+        setError('No account found with this email. Please register first.');
+      } else if (err.code === 'auth/wrong-password') {
+        setError('Incorrect password. Please try again.');
+      } else if (err.code === 'auth/invalid-email') {
+        setError('Please enter a valid email address.');
       } else {
         setError(err.message || 'Authentication failed');
       }

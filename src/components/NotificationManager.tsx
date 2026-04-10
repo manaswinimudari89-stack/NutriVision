@@ -118,29 +118,6 @@ export default function NotificationManager() {
     return () => clearInterval(interval);
   }, []);
 
-  useEffect(() => {
-    const handleTest = () => {
-      setNotifications(prev => [...prev, {
-        id: `test-${Date.now()}`,
-        title: 'Sample Notification',
-        message: 'This is how your meal reminders and health alerts will appear!',
-        type: 'info'
-      }]);
-    };
-    
-    window.addEventListener('test-notification', handleTest);
-    
-    // Trigger one immediately on mount for demonstration
-    const timer = setTimeout(() => {
-      handleTest();
-    }, 1000);
-
-    return () => {
-      window.removeEventListener('test-notification', handleTest);
-      clearTimeout(timer);
-    };
-  }, []);
-
   const dismiss = (id: string) => {
     setNotifications(prev => prev.filter(n => n.id !== id));
   };

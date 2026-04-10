@@ -414,12 +414,6 @@ export default function Dashboard() {
                 <Clock className="w-6 h-6 text-emerald-600" />
                 <h3 className="text-xl font-bold text-[#0f172a]">Today's Meals</h3>
               </div>
-              <button 
-                onClick={() => window.dispatchEvent(new CustomEvent('test-notification'))}
-                className="text-xs font-bold text-emerald-600 bg-emerald-50 px-3 py-1.5 rounded-full hover:bg-emerald-100 transition-colors"
-              >
-                Test Notification
-              </button>
             </div>
 
             {meals.length === 0 ? (
